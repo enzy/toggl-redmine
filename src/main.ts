@@ -49,9 +49,11 @@ async function sync(userRedmineUsernameFilter: string | null) {
                         from: from,
                         to: to,
                         redmineUsername: userConfig.redmineUsername,
+                        redmineUserId: userConfig.redmineUserId,
                         togglUserId: userConfig.togglUserId,
                         lastMonthSyncExpiryDays: config.lastMonthSyncExpiryDays,
-                        updateEntriesAsAdminUser: config.updateEntriesAsAdminUser
+                        updateEntriesAsAdminUser: config.updateEntriesAsAdminUser,
+                        tagToActivityMappings: config.tagToActivityMappings,
                     },
                     togglEntries);
                 const [syncErrors, successfulSyncs] = processedEntries.partition(RedmineConnector.isSyncError);

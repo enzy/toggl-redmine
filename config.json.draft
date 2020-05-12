@@ -14,7 +14,11 @@
             "togglWorkspaceId": 0000000,
             "togglUserId": 0000000,
             "redmineUsername": "impersonated.one",
+            "redmineUserId": 00,
             "notificationsEmail": "xxxxxxxxxxxx@xxxxxx.xxx"
         }
-    ]
+    ],
+    "tagToActivityMappings": {
+        "default": 1
+    }
 }

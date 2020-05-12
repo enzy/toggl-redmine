@@ -3,6 +3,7 @@ export interface UserCredentialMapping {
     togglWorkspaceId: number;
     togglUserId: number;
     redmineUsername: string;
+    redmineUserId: number;
     notificationsEmail: string;
 }
 
@@ -17,4 +18,5 @@ export interface Config {
     smtpUsername: string;
     smtpSender: string; // e.g. '"toggl-redmine sync" <redmine@somedomain.com>'
     userCredentialMappings: UserCredentialMapping[];
+    tagToActivityMappings: Record<string, number>;
 }
