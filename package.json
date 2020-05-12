@@ -6,7 +6,8 @@
   "author": "Ektimo",
   "scripts": {
     "build": "tsc",
-    "buildNoChecks": "tsc --noStrictGenericChecks --skipLibCheck"
+    "buildNoChecks": "tsc --noStrictGenericChecks --skipLibCheck",
+    "sync": "tsc --noStrictGenericChecks --skipLibCheck && node ./built/main.js sync"
   },
   "dependencies": {
     "bottleneck": "2.7.2",
