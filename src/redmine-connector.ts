@@ -17,15 +17,17 @@ export module RedmineConnector {
         to: string; //YYYY-MM-DD format
         togglUserId: number;
         redmineUsername: string;
+        redmineUserId: number;
         lastMonthSyncExpiryDays: number;
         updateEntriesAsAdminUser: boolean;
+        tagToActivityMappings: Record<string, number>;
     }
-    
-    // Redmine API docs: 
+
+    // Redmine API docs:
     // offset: the offset of the first object to retrieve
     // limit: the number of items to be present in the response (default is 25, maximum is 100)
     const queryPageLimit = 100;
-    
+
     export interface SyncSuccess {
         togglEntry: TogglApi.TimeEntry;
         existingEntry: RedmineApi.TimeEntry | null;
@@ -43,19 +45,29 @@ export module RedmineConnector {
     export function isSyncError(item: SyncSuccess | SyncError): item is SyncError{
         return (<SyncError>item).errorMessage !== undefined;
     }
-    
+
     function matchesBySuffixKey(redmineTimeEntry: RedmineApi.TimeEntry, togglEntry: TogglApi.TimeEntry): boolean {
         return redmineTimeEntry.comments.endsWith(`[${togglEntry.id}]`)
     }
-    
+
+    function getRedmineActivityId(togglEntry: TogglApi.TimeEntry, mapping: Record<string, number>): number {
+        if (togglEntry.tags && togglEntry.tags.length) {
+            const tag = togglEntry.tags[0];
+            if (mapping[tag]) {
+                return mapping[tag];
+            }
+        }
+        return mapping['default'];
+    }
+
     function getRedmineTimeEntryDescriptionWithKey(togglEntry: TogglApi.TimeEntry): string {
         return togglEntry.description + ` [${togglEntry.id}]`
     }
-    
+
     function getRedmineUserById(redmineUsers: Vector<RedmineApi.User>, id: number): RedmineApi.User {
         return redmineUsers.filter(x => x.id === id).single().getOrThrow(`User with id ${id} not found among queried redmine users`);
     }
-    
+
     function isSpentOnViolatingLastMonthSyncExpiryDays(spentOn: string, syncParams: SyncParameters): boolean {
         const startOfMonth = DateTime.local().startOf('month');
         const entryDt = DateTime.fromISO(spentOn);
@@ -63,9 +75,9 @@ export module RedmineConnector {
         if(DateTime.local() > startOfMonth.plus({days: syncParams.lastMonthSyncExpiryDays}) && entryDt < startOfMonth) {
             return true;
         }
-        return false;            
+        return false;
     }
-    
+
     export async function syncTogglEnties(syncParams: SyncParameters, togglEntries: Vector<TogglApi.TimeEntry>): Promise<Vector<SyncSuccess | SyncError>> {
         const referencedIssueIds = togglEntries
             .mapOption(x => Helper.extractSingleHashtagNumber(x.description))
@@ -74,16 +86,27 @@ export module RedmineConnector {
         logger.info(`Querying Redmine users`);
         // call with non-impersonating client
         const redmineApiAdminClient = <RedmineApi.Client>new Redmine(syncParams.baseUrl, { apiKey: syncParams.apiToken});
-        const redmineUsers = await queryRedmineUsers(redmineApiAdminClient);
-        logger.info(`Acquired ${redmineUsers.length()} Redmine users: "${redmineUsers.map(x => x.login).mkString(', ')}"`);
 
-        const redmineUser = redmineUsers.filter(x => x.login === syncParams.redmineUsername).single().getOrThrow(`User ${syncParams.redmineUsername} not found in redmine`);
-        // logger.info(`Impersonating user ${syncParams.redmineUsername}`);
-        // redmineApiClient.impersonate = syncParams.redmineUsername;
+        let redmineUsers: Vector<RedmineApi.User>;
+        let redmineUser: RedmineApi.User;
+
+        if (syncParams.redmineUserId) {
+            redmineUser = { id: syncParams.redmineUserId, login: syncParams.redmineUsername, firstname: '', lastname: '', mail: syncParams.redmineUsername };
+            redmineUsers = Vector.ofIterable([ redmineUser ]);
+        } else {
+            redmineUsers = await queryRedmineUsers(redmineApiAdminClient);
+            logger.info(`Acquired ${redmineUsers.length()} Redmine users: "${redmineUsers.map(x => x.login).mkString(', ')}"`);
+
+            redmineUser = redmineUsers.filter(x => x.login === syncParams.redmineUsername).single().getOrThrow(`User ${syncParams.redmineUsername} not found in redmine`);
+            // logger.info(`Impersonating user ${syncParams.redmineUsername}`);
+            // redmineApiClient.impersonate = syncParams.redmineUsername;
+        }
+
+
 
         logger.info(`Creating Redmine client, impersonating user ${syncParams.redmineUsername}`);
         const redmineApiClient = <RedmineApi.Client>new Redmine(syncParams.baseUrl, { apiKey: syncParams.apiToken, impersonate: syncParams.redmineUsername});
-        
+
         logger.info(`Querying ${referencedIssueIds.length()} Redmine issues: "${referencedIssueIds.mkString(', ')}"`);
         const redmineIssues = await queryRedmineIssues(redmineApiClient, referencedIssueIds);
         logger.info(`Acquired ${redmineIssues.length()} Redmine issues: "${redmineIssues.map(x => x.id).mkString(', ')}"`);
@@ -96,11 +119,11 @@ export module RedmineConnector {
             //process all Toggl entries (check/sync to redmine)
             await Promise.all(
                 togglEntries.map(async togglEntry => await syncTogglEntry(
-                    redmineApiAdminClient, 
-                    redmineApiClient, 
-                    syncParams, 
-                    togglEntry, 
-                    redmineIssues, 
+                    redmineApiAdminClient,
+                    redmineApiClient,
+                    syncParams,
+                    togglEntry,
+                    redmineIssues,
                     redmineTimeEntries.filter(redmineEntry => getRedmineUserById(redmineUsers, redmineEntry.user.id).login === syncParams.redmineUsername)))
             )
         ).appendAll(
@@ -111,7 +134,7 @@ export module RedmineConnector {
                 .filter(redmineEntry => ! togglEntries.anyMatch(togglEntry => matchesBySuffixKey(redmineEntry, togglEntry))) // filter by missing a corresponding toggl entry
                 .map(redmineEntry => { return {
                     togglUserId: syncParams.togglUserId,
-                    entry: redmineEntry, 
+                    entry: redmineEntry,
                     errorMessage: "No corresponding Toggl entry for Redmine entry (Deleted toggl entry after it was synced to redmine? If yes, go and delete it manually in redmine as well.)"} })
         ).sortBy((x, y) => {
             const ts1 = isSyncError(x) ? (Helper.isTogglEntry(x.entry) ? DateTime.fromISO(x.entry.start).valueOf() : DateTime.fromISO(x.entry.spent_on).valueOf()) : DateTime.fromISO(x.togglEntry.start).valueOf();
@@ -150,16 +173,16 @@ export module RedmineConnector {
                 issue_id: matchingRedmineIssue.id,
                 project_id: matchingRedmineIssue.project.id,
                 hours: hours,
-                // activity_id:
+                activity_id: getRedmineActivityId(togglEntry, syncParams.tagToActivityMappings),
                 comments: getRedmineTimeEntryDescriptionWithKey(togglEntry),
                 spent_on: spentOn
             };
-                
+
             if(existingMatchingEntries.isEmpty()) {
                 if(isSpentOnViolatingLastMonthSyncExpiryDays(paramsCreateOrUpdateTimeEntry.spent_on, syncParams)) {
                     throw new Error(`Last month sync period expired, skipped creating entry.`)
                 }
-                
+
                 await createRedmineTimeEntry(redmineApiClient, paramsCreateOrUpdateTimeEntry);
 
                 return {
@@ -180,7 +203,7 @@ export module RedmineConnector {
                     existingEntry.hours !== paramsCreateOrUpdateTimeEntry.hours ||
                     existingEntry.comments !== paramsCreateOrUpdateTimeEntry.comments ||
                     existingEntry.spent_on !== paramsCreateOrUpdateTimeEntry.spent_on) {
-                    
+
                     if(isSpentOnViolatingLastMonthSyncExpiryDays(existingEntry.spent_on, syncParams) ||
                         isSpentOnViolatingLastMonthSyncExpiryDays(paramsCreateOrUpdateTimeEntry.spent_on, syncParams)) {
 
@@ -191,10 +214,10 @@ export module RedmineConnector {
 
                         throw new Error(`Last month sync period expired, skipped updating entry, attempted update: ${diffReadableString}.`)
                     }
-                    
+
                     await updateRedmineTimeEntry(
-                        syncParams.updateEntriesAsAdminUser ? redmineApiAdminClient : redmineApiClient, 
-                        existingEntry.id, 
+                        syncParams.updateEntriesAsAdminUser ? redmineApiAdminClient : redmineApiClient,
+                        existingEntry.id,
                         paramsCreateOrUpdateTimeEntry);
 
                     return {
@@ -214,7 +237,7 @@ export module RedmineConnector {
                     action: "nop"
                 }
             }
-            
+
             throw new Error("Broken sync code, this line should be unreachable.")
         }
         catch (error) {
@@ -263,7 +286,7 @@ export module RedmineConnector {
                         const issuesNextPage = await queryRedmineIssues(redmineApiClient, issueIds, page + 1);
                         issuesTail = issuesTail.appendAll(issuesNextPage);
                     }
-                    
+
                     resolve(issuesTail);
                 });
         })
@@ -282,7 +305,7 @@ export module RedmineConnector {
 
                     if (page * data.limit < data.total_count) {
                         const timeEntriesNextPage = await queryRedmineTimeEntries(redmineApiClient, from, to, userId, page + 1);
-                        timeEntriesTail = timeEntriesTail.appendAll(timeEntriesNextPage);                        
+                        timeEntriesTail = timeEntriesTail.appendAll(timeEntriesNextPage);
                     }
 
                     resolve(timeEntriesTail);
