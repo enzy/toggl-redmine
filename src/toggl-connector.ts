@@ -9,18 +9,19 @@ export module TogglConnector {
         maxConcurrent: 1,
         minTime: 1050
     });
-    
+
     //https://github.com/7eggs/node-toggl-api
     const TogglClient = require('toggl-api');
-    
+
     export interface TogglQueryParams {
         apiToken: string;
         from: string; //YYYY-MM-DD format
         to: string; //YYYY-MM-DD format
         workspaceId: number;
         userId: number;
+        clientIds: number[];
     }
-    
+
     async function executeQuery(togglClient: TogglApi.Client, queryParams: TogglQueryParams, page: number): Promise<TogglApi.Report> {
         return limiter.schedule(() => {
             const requestParams: TogglApi.DetailedRequestParameters = {
@@ -28,11 +29,12 @@ export module TogglConnector {
                 since: queryParams.from,
                 until: queryParams.to,
                 user_ids: String(queryParams.userId),
+                client_ids: queryParams.clientIds.join(','),
                 //order_field: 'date', //currently sorting doesn't work
                 //order_desc: 'off',
                 page: page
             };
-            
+
             return new Promise<TogglApi.Report>((resolve, reject) => {
                 togglClient.detailedReport(requestParams, (err: TogglApi.Error, report: TogglApi.Report) => {
                     if (err !== null) {
@@ -66,7 +68,7 @@ export module TogglConnector {
         });
         const data = await queryPageEntries(togglClient, queryParams, 1);
         togglClient.destroy();
-            
+
         return data;
     }
 }

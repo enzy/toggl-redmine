@@ -2,6 +2,7 @@ export interface UserCredentialMapping {
     togglApiToken: string;
     togglWorkspaceId: number;
     togglUserId: number;
+    toggleClientIds?: number[];
     redmineUsername: string;
     redmineUserId: number;
     notificationsEmail: string;
