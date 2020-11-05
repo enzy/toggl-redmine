@@ -32,7 +32,7 @@ async function sync(userRedmineUsernameFilter: string | null) {
                         to: to,
                         userId: userConfig.togglUserId,
                         workspaceId: userConfig.togglWorkspaceId,
-                        clientIds: userConfig.toggleClientIds || [],
+                        clientIds: userConfig.togglClientIds || [],
                     }))
                     .filter(x => !x.description.includes("#ignore"));
 
